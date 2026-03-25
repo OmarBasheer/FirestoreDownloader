@@ -14,10 +14,12 @@ const emptyStateEl = document.getElementById("empty-state");
 const countEl      = document.getElementById("count");
 const filterSelect = document.getElementById("filter-type");
 const clearBtn     = document.getElementById("btn-clear");
+const listenBtn    = document.getElementById("btn-listen");
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let allFiles = [];
+let isListening = true;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,6 +145,40 @@ function render() {
   fileListEl.appendChild(fragment);
 }
 
+// ─── Listening state ──────────────────────────────────────────────────────────
+
+/**
+ * Sync the listen button's appearance to the current isListening value.
+ */
+function updateListenButton() {
+  if (isListening) {
+    listenBtn.textContent = "⏹ Listening";
+    listenBtn.className   = "btn btn--listen-active btn--sm";
+    listenBtn.title       = "Stop listening for requests";
+  } else {
+    listenBtn.textContent = "▶ Start Listening";
+    listenBtn.className   = "btn btn--listen-inactive btn--sm";
+    listenBtn.title       = "Start listening for requests";
+  }
+}
+
+function loadListeningState() {
+  chrome.runtime.sendMessage({ action: "getListeningState" }, (response) => {
+    if (chrome.runtime.lastError) return;
+    isListening = response?.isListening ?? true;
+    updateListenButton();
+  });
+}
+
+listenBtn.addEventListener("click", () => {
+  isListening = !isListening;
+  listenBtn.disabled = true;
+  chrome.runtime.sendMessage({ action: "setListening", value: isListening }, () => {
+    listenBtn.disabled = false;
+    updateListenButton();
+  });
+});
+
 // ─── Load data from background ────────────────────────────────────────────────
 
 function loadFiles() {
@@ -216,4 +252,5 @@ filterSelect.addEventListener("change", render);
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
+loadListeningState();
 loadFiles();

@@ -244,6 +244,18 @@ body {
   padding: 3px 7px;
 }
 
+.btn--listen-active {
+  background: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #86efac;
+}
+
+.btn--listen-inactive {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 .file-list::-webkit-scrollbar {
   width: 5px;

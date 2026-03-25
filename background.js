@@ -14,6 +14,16 @@
 const FIREBASE_STORAGE_ORIGIN = "firebasestorage.googleapis.com";
 const FIRESTORE_ORIGIN = "firestore.googleapis.com";
 
+// ─── Listening state ─────────────────────────────────────────────────────────
+
+/** Whether the extension is actively capturing requests. Persisted in storage. */
+let isListening = true;
+
+// Load persisted listening state so it survives service-worker restarts.
+chrome.storage.local.get({ isListening: true }, (result) => {
+  isListening = result.isListening;
+});
+
 /** Maximum number of captured file records retained in storage. */
 const MAX_CAPTURED_FILES = 200;
 
@@ -41,7 +51,18 @@ function classifyUrl(url) {
     }
 
     if (parsed.hostname === FIRESTORE_ORIGIN) {
-      if (parsed.pathname.includes("/documents/")) {
+      // Capture any Firestore API request:
+      //   - REST document reads/writes: path contains "/documents"
+      //     (e.g. /v1/…/documents/col/doc  OR  /v1/…/documents:runQuery)
+      //   - gRPC-Web channel (real-time listeners): path contains "firestore.v1"
+      //     (e.g. /google.firestore.v1.Firestore/Listen/channel)
+      //   - Any other v1/v1beta1 endpoint
+      if (
+        parsed.pathname.includes("/documents") ||
+        parsed.pathname.includes("firestore.v1") ||
+        parsed.pathname.startsWith("/v1") ||
+        parsed.pathname.startsWith("/v1beta1")
+      ) {
         return { isStorage: false, isFirestore: true };
       }
     }
@@ -83,10 +104,27 @@ function fileNameFromStorageUrl(url) {
 function fileNameFromFirestoreUrl(url) {
   try {
     const parsed = new URL(url);
-    const afterDocuments = parsed.pathname.split("/documents/")[1];
-    if (!afterDocuments) return "document.json";
-    const parts = afterDocuments.split("/").filter(Boolean);
-    return parts.slice(-2).join("_") + ".json";
+
+    // REST document/collection path: …/documents/collection/doc
+    const docIdx = parsed.pathname.indexOf("/documents/");
+    if (docIdx !== -1) {
+      const afterDocuments = parsed.pathname.slice(docIdx + "/documents/".length);
+      const parts = afterDocuments.split("/").filter(Boolean);
+      if (parts.length > 0) {
+        return parts.slice(-2).join("_") + ".json";
+      }
+    }
+
+    // REST operation (no trailing path after /documents): …/documents:runQuery etc.
+    const colonIdx = parsed.pathname.indexOf("/documents:");
+    if (colonIdx !== -1) {
+      const op = parsed.pathname.slice(colonIdx + "/documents:".length).split("/")[0];
+      return (op || "query") + ".json";
+    }
+
+    // gRPC-Web or any other endpoint – use the last meaningful path segment
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+    return (pathParts[pathParts.length - 1] || "document") + ".json";
   } catch {
     return "document.json";
   }
@@ -171,6 +209,9 @@ function showNotification(record) {
 
 chrome.webRequest.onCompleted.addListener(
   (details) => {
+    // Only capture when the extension is in "listening" mode.
+    if (!isListening) return;
+
     // Only capture successful responses (2xx) that are not preflight/OPTIONS.
     if (details.method === "OPTIONS") return;
     if (details.statusCode < 200 || details.statusCode >= 300) return;
@@ -191,7 +232,7 @@ chrome.webRequest.onCompleted.addListener(
 
 // ─── Message Handler (from popup) ────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "getFiles") {
     chrome.storage.local.get({ capturedFiles: [] }, (result) => {
       sendResponse({ files: result.capturedFiles });
@@ -231,13 +272,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "getListeningState") {
+    sendResponse({ isListening });
+    return true;
+  }
+
+  if (message.action === "setListening") {
+    isListening = !!message.value;
+    chrome.storage.local.set({ isListening }, () => {
+      sendResponse({ success: true, isListening });
+    });
+    return true;
+  }
+
   if (message.action === "firestoreRequestDetected") {
     // Forwarded from content.js for XHR/fetch-based requests not captured by
     // webRequest (e.g. cross-origin fetches in Manifest V3 service workers).
+    if (!isListening) {
+      sendResponse({ success: true });
+      return true;
+    }
     const classification = classifyUrl(message.url);
     if (classification) {
+      const tabId = (sender.tab && sender.tab.id) ? sender.tab.id : (message.tabId || -1);
       const record = buildRecord(
-        { url: message.url, tabId: message.tabId, statusCode: 200, method: "GET" },
+        { url: message.url, tabId, statusCode: 200, method: "GET" },
         classification
       );
       saveRecord(record).catch(console.error);
@@ -250,7 +309,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // ─── Startup: sync badge on install/reload ───────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get({ capturedFiles: [] }, (result) => {
+  chrome.storage.local.get({ capturedFiles: [], isListening: true }, (result) => {
+    isListening = result.isListening;
     updateBadge(result.capturedFiles);
   });
 });
