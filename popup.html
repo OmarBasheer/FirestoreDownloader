@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firestore Downloader</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <img src="icons/icon48.png" alt="Firestore Downloader" class="header__icon" />
+    <h1 class="header__title">Firestore Downloader</h1>
+  </header>
+
+  <div class="toolbar">
+    <span id="count" class="toolbar__count">0 file(s) captured</span>
+    <button id="btn-clear" class="btn btn--danger btn--sm" title="Clear all captured files">
+      Clear All
+    </button>
+  </div>
+
+  <div class="filter-bar">
+    <label class="filter-bar__label" for="filter-type">Filter:</label>
+    <select id="filter-type" class="filter-bar__select">
+      <option value="all">All</option>
+      <option value="storage">Storage files</option>
+      <option value="firestore">Firestore docs</option>
+    </select>
+  </div>
+
+  <main id="file-list" class="file-list">
+    <p class="empty-state" id="empty-state">
+      No Firebase requests detected yet.<br />
+      Browse a site that uses Firebase to start capturing.
+    </p>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
