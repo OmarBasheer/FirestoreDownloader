@@ -1,10 +1,12 @@
 /**
- * content.js – Firestore Downloader Content Script
+ * content.js – Firestore Downloader Content Script (MAIN world)
  *
- * Hooks into the page's XMLHttpRequest and fetch APIs to detect requests made
- * to Firebase Storage and the Firestore REST API.  Detected requests are
- * forwarded to the service worker via chrome.runtime.sendMessage so they can
- * be recorded even when webRequest alone cannot capture all request details.
+ * Runs in the page's main JavaScript execution context so it can intercept
+ * XMLHttpRequest and fetch before the page uses them.
+ *
+ * NOTE: chrome.runtime is NOT available in the MAIN world.  Detected URLs are
+ * forwarded to content-bridge.js (which runs in the ISOLATED world and has
+ * access to chrome.runtime) via window.postMessage.
  */
 
 "use strict";
@@ -27,19 +29,12 @@
   }
 
   /**
-   * Notify the service worker about an intercepted URL.
+   * Forward a detected URL to the ISOLATED-world bridge script via postMessage.
+   * The bridge (content-bridge.js) then relays it to the service worker.
    * @param {string} url
    */
   function notifyBackground(url) {
-    try {
-      chrome.runtime.sendMessage({
-        action: "firestoreRequestDetected",
-        url,
-        tabId: undefined, // background fills this in
-      });
-    } catch {
-      // Extension context may have been invalidated; silently ignore.
-    }
+    window.postMessage({ _firestoreDownloader: true, url }, "*");
   }
 
   // ─── Hook XMLHttpRequest ────────────────────────────────────────────────────
